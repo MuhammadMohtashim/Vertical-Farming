@@ -1,152 +1,179 @@
-#include <Wire.h>
-#include <Adafruit_Sensor.h>
-#include <Adafruit_BME280.h>
 #include <WiFi.h>
-extern "C" {
-  #include "freertos/FreeRTOS.h"
-  #include "freertos/timers.h"
-}
-#include <AsyncMqttClient.h>
+#include <PubSubClient.h>
+#include <Wire.h>
+#include <Adafruit_BME280.h>
+#include <Adafruit_Sensor.h>
 
-#define WIFI_SSID "1FF0 Hyperoptic 1Gb Fibre 2.4Ghz"
-#define WIFI_PASSWORD "SNx5AukQHkDu"
 
-// Raspberry Pi Mosquitto MQTT Broker
-#define MQTT_HOST IPAddress(127, 0, 0, 100)
-// For a cloud MQTT broker, type the domain name
-//#define MQTT_HOST "example.com"
-#define MQTT_PORT 1880
 
-// Temperature MQTT Topics
-#define MQTT_PUB_TEMP "esp32/bme280/temperature"
-#define MQTT_PUB_HUM "esp32/bme280/humidity"
-#define MQTT_PUB_PRES "esp32/bme280/pressure"
+const int AirValue = 620;   //you need to replace this value with Value_1
+const int WaterValue = 310;  //you need to replace this value with Value_2
+int soilMoistureValue = 0;
+int soilmoisturepercent=0;
 
-// BME280 I2C
-Adafruit_BME280 bme;
-// Variables to hold sensor readings
-float temp;
-float hum;
-float pres;
 
-AsyncMqttClient mqttClient;
-TimerHandle_t mqttReconnectTimer;
-TimerHandle_t wifiReconnectTimer;
+#define SEALEVELPRESSURE_HPA (1013.25)
 
-unsigned long previousMillis = 0;   // Stores last time temperature was published
-const long interval = 10000;        // Interval at which to publish sensor readings
+// Replace the next variables with your SSID/Password combination
+const char* ssid = "1FF0 Hyperoptic 1Gb Fibre 2.4Ghz";
+const char* password = "SNx5AukQHkDu";
 
-void connectToWifi() {
-  Serial.println("Connecting to Wi-Fi...");
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-}
+// Add your MQTT Broker IP address, example:
+//const char* mqtt_server = "192.168.1.144";
+const char* mqtt_server = "127.0.0.1";
 
-void connectToMqtt() {
-  Serial.println("Connecting to MQTT...");
-  mqttClient.connect();
-}
+WiFiClient espClient;
+PubSubClient client(espClient);
+long lastMsg = 0;
+char msg[50];
+int value = 0;
 
-void WiFiEvent(WiFiEvent_t event) {
-  Serial.printf("[WiFi-event] event: %d\n", event);
-  switch(event) {
-    case SYSTEM_EVENT_STA_GOT_IP:
-      Serial.println("WiFi connected");
-      Serial.println("IP address: ");
-      Serial.println(WiFi.localIP());
-      connectToMqtt();
-      break;
-    case SYSTEM_EVENT_STA_DISCONNECTED:
-      Serial.println("WiFi lost connection");
-      xTimerStop(mqttReconnectTimer, 0); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
-      xTimerStart(wifiReconnectTimer, 0);
-      break;
-  }
-}
 
-void onMqttConnect(bool sessionPresent) {
-  Serial.println("Connected to MQTT.");
-  Serial.print("Session present: ");
-  Serial.println(sessionPresent);
-}
 
-void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
-  Serial.println("Disconnected from MQTT.");
-  if (WiFi.isConnected()) {
-    xTimerStart(mqttReconnectTimer, 0);
-  }
-}
+Adafruit_BME280 bme; // I2C
 
-/*void onMqttSubscribe(uint16_t packetId, uint8_t qos) {
-  Serial.println("Subscribe acknowledged.");
-  Serial.print("  packetId: ");
-  Serial.println(packetId);
-  Serial.print("  qos: ");
-  Serial.println(qos);
-}
-void onMqttUnsubscribe(uint16_t packetId) {
-  Serial.println("Unsubscribe acknowledged.");
-  Serial.print("  packetId: ");
-  Serial.println(packetId);
-}*/
+float temperature = 0;
+float humidity = 0;
 
-void onMqttPublish(uint16_t packetId) {
-  Serial.print("Publish acknowledged.");
-  Serial.print("  packetId: ");
-  Serial.println(packetId);
-}
+// LED Pin
+const int ledPin = 4;
 
 void setup() {
   Serial.begin(115200);
-  Serial.println();
-  
-  // Initialize BME280 sensor 
+  // default settings
+  // (you can also pass in a Wire library object like &Wire2)
+  //status = bme.begin();  
   if (!bme.begin(0x76)) {
     Serial.println("Could not find a valid BME280 sensor, check wiring!");
     while (1);
   }
-  
-  mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
-  wifiReconnectTimer = xTimerCreate("wifiTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToWifi));
+  setup_wifi();
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(callback);
 
-  WiFi.onEvent(WiFiEvent);
-
-  mqttClient.onConnect(onMqttConnect);
-  mqttClient.onDisconnect(onMqttDisconnect);
-  //mqttClient.onSubscribe(onMqttSubscribe);
-  //mqttClient.onUnsubscribe(onMqttUnsubscribe);
-  mqttClient.onPublish(onMqttPublish);
-  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
-  // If your broker requires authentication (username and password), set them below
-  //mqttClient.setCredentials("REPlACE_WITH_YOUR_USER", "REPLACE_WITH_YOUR_PASSWORD");
-  connectToWifi();
+  pinMode(ledPin, OUTPUT);
 }
 
-void loop() {
-  unsigned long currentMillis = millis();
-  // Every X number of seconds (interval = 10 seconds) 
-  // it publishes a new MQTT message
-  if (currentMillis - previousMillis >= interval) {
-    // Save the last time a new reading was published
-    previousMillis = currentMillis;
-    // New BME280 sensor readings
-    temp = bme.readTemperature();
-    //temp = 1.8*bme.readTemperature() + 32;
-    hum = bme.readHumidity();
-    pres = bme.readPressure()/100.0F;
-    
-    // Publish an MQTT message on topic esp32/BME2800/temperature
-    uint16_t packetIdPub1 = mqttClient.publish(MQTT_PUB_TEMP, 1, true, String(temp).c_str());                            
-    Serial.printf("Publishing on topic %s at QoS 1, packetId: %i", MQTT_PUB_TEMP, packetIdPub1);
-    Serial.printf("Message: %.2f \n", temp);
+void setup_wifi() {
+  delay(10);
+  // We start by connecting to a WiFi network
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
 
-    // Publish an MQTT message on topic esp32/BME2800/humidity
-    uint16_t packetIdPub2 = mqttClient.publish(MQTT_PUB_HUM, 1, true, String(hum).c_str());                            
-    Serial.printf("Publishing on topic %s at QoS 1, packetId %i: ", MQTT_PUB_HUM, packetIdPub2);
-    Serial.printf("Message: %.2f \n", hum);
+  WiFi.begin(ssid, password);
 
-    // Publish an MQTT message on topic esp32/BME2800/pressure
-    uint16_t packetIdPub3 = mqttClient.publish(MQTT_PUB_PRES, 1, true, String(pres).c_str());                            
-    Serial.printf("Publishing on topic %s at QoS 1, packetId: %i", MQTT_PUB_PRES, packetIdPub3);
-    Serial.printf("Message: %.3f \n", pres);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
   }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+void callback(char* topic, byte* message, unsigned int length) {
+  Serial.print("Message arrived on topic: ");
+  Serial.print(topic);
+  Serial.print(". Message: ");
+  String messageTemp;
+  
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)message[i]);
+    messageTemp += (char)message[i];
+  }
+  Serial.println();
+
+  // Feel free to add more if statements to control more GPIOs with MQTT
+
+  // If a message is received on the topic esp32/output, you check if the message is either "on" or "off". 
+  // Changes the output state according to the message
+  if (String(topic) == "esp32/output") {
+    Serial.print("Changing output to ");
+    if(messageTemp == "on"){
+      Serial.println("on");
+      digitalWrite(ledPin, HIGH);
+    }
+    else if(messageTemp == "off"){
+      Serial.println("off");
+      digitalWrite(ledPin, LOW);
+    }
+  }
+}
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (client.connect("ESP8266Client")) {
+      Serial.println("connected");
+      // Subscribe
+      client.subscribe("esp32/output");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+void loop() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  long now = millis();
+  if (now - lastMsg > 5000) {
+    lastMsg = now;
+    
+    // Temperature in Celsius
+    temperature = bme.readTemperature();   
+    // Uncomment the next line to set temperature in Fahrenheit 
+    // (and comment the previous temperature line)
+    //temperature = 1.8 * bme.readTemperature() + 32; // Temperature in Fahrenheit
+    
+    // Convert the value to a char array
+    char tempString[8];
+    dtostrf(temperature, 1, 2, tempString);
+    Serial.print("Temperature: ");
+    Serial.println(tempString);
+    client.publish("esp32/temperature", tempString);
+
+    humidity = bme.readHumidity();
+    
+    // Convert the value to a char array
+    char humString[8];
+    dtostrf(humidity, 1, 2, humString);
+    Serial.print("Humidity: ");
+    Serial.println(humString);
+    client.publish("esp32/humidity", humString);
+  }
+}
+
+
+
+void soil_moisture() {
+soilMoistureValue = analogRead(A0);  //put Sensor insert into soil
+Serial.println(soilMoistureValue);
+soilmoisturepercent = map(soilMoistureValue, AirValue, WaterValue, 0, 100);
+if(soilmoisturepercent >= 100)
+{
+  Serial.println("100 %");
+}
+else if(soilmoisturepercent <=0)
+{
+  Serial.println("0 %");
+}
+else if(soilmoisturepercent >0 && soilmoisturepercent < 100)
+{
+  Serial.print(soilmoisturepercent);
+  Serial.println("%");
+  
+}
+  delay(250);
 }

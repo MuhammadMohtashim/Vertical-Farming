@@ -5,6 +5,7 @@
 #include <Adafruit_Sensor.h>
 
 
+#define moisture_pin = 5;
 
 const int AirValue = 620;   //you need to replace this value with Value_1
 const int WaterValue = 310;  //you need to replace this value with Value_2
@@ -34,24 +35,25 @@ Adafruit_BME280 bme; // I2C
 
 float temperature = 0;
 float humidity = 0;
+float soilmoisture = 0;
 
 // LED Pin
 const int ledPin = 4;
 
 void setup() {
   Serial.begin(115200);
-  // default settings
-  // (you can also pass in a Wire library object like &Wire2)
-  //status = bme.begin();  
+
   if (!bme.begin(0x76)) {
     Serial.println("Could not find a valid BME280 sensor, check wiring!");
     while (1);
   }
+
+
   setup_wifi();
   client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
 
-  pinMode(ledPin, OUTPUT);
+
 }
 
 void setup_wifi() {
@@ -86,15 +88,12 @@ void callback(char* topic, byte* message, unsigned int length) {
   }
   Serial.println();
 
-  // Feel free to add more if statements to control more GPIOs with MQTT
 
-  // If a message is received on the topic esp32/output, you check if the message is either "on" or "off". 
-  // Changes the output state according to the message
   if (String(topic) == "esp32/output") {
     Serial.print("Changing output to ");
     if(messageTemp == "on"){
       Serial.println("on");
-      digitalWrite(ledPin, HIGH);
+
     }
     else if(messageTemp == "off"){
       Serial.println("off");
@@ -133,11 +132,7 @@ void loop() {
     
     // Temperature in Celsius
     temperature = bme.readTemperature();   
-    // Uncomment the next line to set temperature in Fahrenheit 
-    // (and comment the previous temperature line)
-    //temperature = 1.8 * bme.readTemperature() + 32; // Temperature in Fahrenheit
-    
-    // Convert the value to a char array
+  
     char tempString[8];
     dtostrf(temperature, 1, 2, tempString);
     Serial.print("Temperature: ");
@@ -152,28 +147,22 @@ void loop() {
     Serial.print("Humidity: ");
     Serial.println(humString);
     client.publish("esp32/humidity", humString);
+
+
+// Convert the value to a char array
+    char soilString[8];
+    dtostrf(soilmoisturepercent, 1, 2, soilString);
+    Serial.print("Soil Moisture: ");
+    Serial.println(soilString);
+    client.publish("esp32/soilmoisturepercent", soilString);
+
   }
 }
 
 
 
 void soil_moisture() {
-soilMoistureValue = analogRead(A0);  //put Sensor insert into soil
+soilMoistureValue = analogRead(moisture_pin);  //put Sensor insert into soil
 Serial.println(soilMoistureValue);
 soilmoisturepercent = map(soilMoistureValue, AirValue, WaterValue, 0, 100);
-if(soilmoisturepercent >= 100)
-{
-  Serial.println("100 %");
-}
-else if(soilmoisturepercent <=0)
-{
-  Serial.println("0 %");
-}
-else if(soilmoisturepercent >0 && soilmoisturepercent < 100)
-{
-  Serial.print(soilmoisturepercent);
-  Serial.println("%");
-  
-}
-  delay(250);
 }

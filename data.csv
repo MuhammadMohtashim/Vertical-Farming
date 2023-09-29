@@ -1,3 +1,6 @@
-﻿Temperature,25
-humidity,400
-moisture,98
+﻿High Temp,45
+Low temp,25
+high humid,52
+low humid,30
+high moist,98
+low moist,40

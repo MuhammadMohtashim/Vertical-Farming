@@ -1,7 +1,7 @@
-﻿High Temp,25
-Low temp,20
+﻿LOW Temperature,25
+HIGH Temp,45
 high humid,52
 low humid,30
-high moist,98
-low moist,7
+LOW Moist,70
+HIGH Moist,90
 test,100

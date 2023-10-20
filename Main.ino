@@ -5,6 +5,8 @@
 #include <Adafruit_BME280.h>
 #include <ArduinoJson.h>
 #include <PubSubClient.h>
+#include <sunset.h>
+#include <time.h>
 
 //Define Pins
 #define I2C_ADDR 0x76
@@ -19,6 +21,9 @@
 #define heatpin_on 32
 #define heatpin_off 33
 #define lightpin 23
+#define TIMEZONE +1
+#define LATITUDE 51.5072
+#define LONGITUDE 0.1276
 
 
 //Define Floats and Integers 
@@ -26,7 +31,6 @@ Adafruit_BME280 bme;
 const int dry = 2600;   //you need to replace this value with Value_1
 const int wet = 600;  //you need to replace this value with Value_2
 
-int pump_bool, heat_bool, fan_bool, manual_bool, select_bool, temp_bool;
 
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 0;
@@ -34,9 +38,9 @@ const int   daylightOffset_sec = 3600;
 
 
 unsigned long lastToggleTime = 0;
-bool bulbState = false;
 
-int pump_status, heat_status, fan_status,manual_status;
+int pump_status, heat_status, fan_status, bulb_status, manual_status;
+int pump_bool, heat_bool, fan_bool, manual_bool, select_bool, temp_bool, bulb_bool = false;
 float moist1, moist2, moist3, moist4;
 float tempF, humi, pressure, MoistVal1, MoistVal2, MoistVal3, MoistVal4;
 
@@ -46,10 +50,10 @@ int variablesCount = 0;
 
 
 // Wi-Fi settings - replaced xxx with Wi-Fi SSID and password
-const char* ssid     = "1FF0 Hyperoptic 1Gb Fibre 2.4Ghz";
-const char* password = "SNx5AukQHkDu";
+const char* ssid     = "Redmi Note 10 Pro";
+const char* password = "12344321";
 //  MQTT specifics 
-const char* mqttServer = "192.168.1.213";
+const char* mqttServer = "192.168.12.219";
 const int mqttPort = 1883;
 const char* mqttUser = "mqtt-user";
 const char* mqttPassword = "1234";
@@ -57,18 +61,19 @@ const char* mqttPassword = "1234";
 //Object Creation
 WiFiClient espClient;
 PubSubClient client(espClient);
+SunSet sun;
+
+//MISC Variables
 long lastMsg = 0;
 char msg[50];
 int value = 0;
 
+
 //ESP32 Output Message Creation
 void callback(char* topic, byte* message, unsigned int length) {
-  //Serial.print("Message arrived on topic: ");
-  //Serial.print(topic);
-  //Serial.print(". Message: ");
+
   String messageTemp;
-  
-  
+    
   for (int i = 0; i < length; i++) {
     messageTemp += (char)message[i];
   }
@@ -82,55 +87,67 @@ void callback(char* topic, byte* message, unsigned int length) {
   if (temptopic == "homeassist/manual" &&  Temp == 1)
   {
     manual_bool = 1;
-    select_bool = 1; 
     Serial.println("Manual bool turned on");
   }
   
   else if (temptopic == "homeassist/manual" &&  Temp == 0) 
   {
     manual_bool = 0;
-    select_bool = 0;
     Serial.println("manual bool turned off");
   }
   
-  if ((topic == "homeassist/heater") && (messageTemp == "1"))
+
+  if ((temptopic == "homeassist/heater") && (Temp == 1))
   {
-    heat_bool = 1; 
+    heat_bool = 1;
+    Serial.println("Heater bool on"); 
   }
-  else if (topic == "homeassist/heater" && messageTemp == "0") {
+  else if (temptopic == "homeassist/heater" && Temp == 0) {
     heat_bool = 0;
+    Serial.println("Heater bool off");
   }
 
-  if (topic == "homeassist/pump" &&  messageTemp == "1")
+
+  if (temptopic == "homeassist/pump" &&  Temp == 1)
   {
     pump_bool = 1; 
+    Serial.println("pump bool on");
   }
-  else if (topic == "homeassist/pump" &&  messageTemp == "0") {
-    heat_bool = 0;
+  else if (temptopic == "homeassist/pump" &&  Temp == 0) {
+    pump_bool = 0;
+    Serial.println("pump bool off");
   }
 
-    if (topic == "homeassist/fan" &&  messageTemp == "1")
+
+  if ((temptopic == "homeassist/fan") && (Temp == 1))
   {
-    fan_bool = 1; 
+    fan_bool = 1;
+    Serial.println("fan bool on"); 
   }
-  else if (topic == "homeassist/fan" &&  messageTemp == "0"){
+  else if (temptopic == "homeassist/fan" && Temp == 0) {
     fan_bool = 0;
+    Serial.println("fan bool off");
   }
-
 }
 
 
 void setup() {
-
   // Configure serial port for debug when ESP32 board is connected
   Serial.begin(115200);
   Serial.print("Starting setup  ");
+  
   // Recommended delay
   for (uint8_t t = 4; t > 0; t--) {
     Serial.printf("%d...", t);
     Serial.flush();
     delay(500);
   }
+
+  //Sync ESP32 rtc time with real world time and get sunset and sunrise time based on location
+  struct tm timeinfo;
+  sun.setPosition(LATITUDE, LONGITUDE, TIMEZONE); 
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  sun.setCurrentDate(timeinfo.tm_year, timeinfo.tm_mon, timeinfo.tm_mday);
 
   //pin type decleration
   pinMode(moist_pin1,INPUT);
@@ -168,7 +185,6 @@ void setup() {
   client.subscribe("homeassist/manual");
   client.setCallback(callback);
   
-
 
   // Configure and connect to BME280 Sensor via I2C - blocking
   Serial.println("Checking BME280");
@@ -209,7 +225,7 @@ void setup() {
       stringStart = stringEnd + 1;
     }
   }
-  else {
+  else { 
     Serial.println("Error on HTTP request");
   }
   http.end();
@@ -217,10 +233,6 @@ void setup() {
   for (int i = 0; i < variablesCount; i++) {
     floatVariablesArray[i] = variablesArray[i].toFloat();  // Convert String to float
   }
-
-  //Synchronise ESP32 RTC with Time
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-
 }
 
 

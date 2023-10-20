@@ -3,26 +3,24 @@ void runthings(){
   unsigned long currentTime = millis();
   unsigned long elapsedTime = currentTime - lastToggleTime;
   
-  if (bulbState && elapsedTime >= 28800000) { // 8 hours in milliseconds
+  if (bulb_bool && elapsedTime >= 28800000) { // 8 hours in milliseconds
     digitalWrite(lightpin, LOW);
-    bulbState = false;
+    bulb_bool = false;
+    bulb_status = 0;
     lastToggleTime = currentTime;
     Serial.println("Bulb is OFF");
   } 
-  else if (!bulbState && elapsedTime >= 57600000) { // 16 hours in milliseconds
+  else if (!bulb_bool && elapsedTime >= 57600000) { // 16 hours in milliseconds
     digitalWrite(lightpin, HIGH);
-    bulbState = true;
+    bulb_bool = true;
+    bulb_status = 1;
     lastToggleTime = currentTime;
     Serial.println("Bulb is ON");
   }
-
-  String postData;
-
   // This is the recommended minimum amount of time to wait before reading sensor
   delay(1000);
 
-
-
+  String postData;
   // Read the sensor, convert readings and set variables
   tempF = bme.readTemperature();
   humi = bme.readHumidity();
@@ -33,12 +31,10 @@ void runthings(){
   MoistVal4 = analogRead(moist_pin4);  //put Sensor insert into soil
 
   int moistpercent1, moistpercent2, moistpercent3, moistpercent4;
-
   moistpercent1 = map(MoistVal1, dry, wet, 0, 100);
   moistpercent2 = map(MoistVal2, dry, wet, 0, 100);
   moistpercent3 = map(MoistVal3, dry, wet, 0, 100);
   moistpercent4 = map(MoistVal4, dry, wet, 0, 100);
-
   moist1 = constrain(moistpercent1, 0, 100);
   moist2 = constrain(moistpercent2, 0, 100);
   moist3 = constrain(moistpercent3, 0, 100);
@@ -46,40 +42,44 @@ void runthings(){
 
   if (manual_bool == 1){
     manual_status = 1;
-    //Serial.println("Manual switch activated");
     if (heat_bool == 1)
     {
-      digitalWrite(heatpin_on,LOW);
-      digitalWrite(heatpin_off,HIGH);
+      digitalWrite(heatpin_on,HIGH);
+      digitalWrite(heatpin_off,LOW);
       heat_status = 1;
+      Serial.println("Heater on");
     }
     else if (heat_bool == 0){
       digitalWrite(heatpin_on,LOW);
       digitalWrite(heatpin_off,LOW);
       heat_status = 0;
+      Serial.println("Heater off");
     }
 
     if (pump_bool == 1){
       digitalWrite(pump_on,HIGH);
       digitalWrite(pump_off,LOW);
       pump_status = 1;
+      Serial.println("pump on");
     }
     else if (pump_bool == 0){
       digitalWrite(pump_on,LOW);
       digitalWrite(pump_off,LOW);
+      Serial.println("pump off");
       pump_status = 0;
     }
 
     if (fan_bool == 1){
       digitalWrite(fanpin_on,HIGH);
       digitalWrite(fanpin_off,LOW);
+      Serial.println("fan on");
       fan_status = 1;
     }
-
     else if(fan_bool == 0){
       digitalWrite(fanpin_on,LOW);
       digitalWrite(fanpin_off,LOW);
-      fan_bool = 0;
+      Serial.println("fan off");
+      fan_status = 0;
     }
   }
 
@@ -92,7 +92,7 @@ void runthings(){
 
 
   //Creates serialized JSON string to send to Home Assistant
-  const int capacity = JSON_OBJECT_SIZE(11);
+  const int capacity = JSON_OBJECT_SIZE(12);
   StaticJsonDocument<capacity> doc;
 
   doc["tempF"] = tempF;
@@ -106,6 +106,7 @@ void runthings(){
   doc["HeatStat"] = heat_status;
   doc["FanStat"] = fan_status;
   doc["ManualStat"] = manual_status;
+  doc["BulbStat"] = bulb_status;
 
   char buffer[256];
   size_t n = serializeJson(doc, buffer);
@@ -136,33 +137,33 @@ void runthings(){
   //Serial.println("-------------");
   // Wait for 5 seconds before repeating the loop
   delay(1000);
-
 }
 
 
 
 void heatloop(){ //Whether to turn on heater or fan
 
-  if (tempF <= floatVariablesArray[1] && (heat_bool == 1 || heat_bool == 0)){
+  if (tempF <= floatVariablesArray[0] && (heat_bool == 1 || heat_bool == 0)){
     //Serial.println(floatVariablesArray[1]);
     digitalWrite(heatpin_on,HIGH);
     digitalWrite(heatpin_off,LOW);
-    //Serial.println("Heater ON");
+    Serial.println("Heater ON from Values");
     heat_status = 1;
     fan_status = 0;
-
   }
 
-  else if (tempF >= floatVariablesArray[0] && (fan_bool == 1 || fan_bool == 0)){
+  else if (tempF >= floatVariablesArray[1] && (fan_bool == 1 || fan_bool == 0)){
     //Serial.println(floatVariablesArray[0]);
     digitalWrite(fanpin_on,HIGH);
     digitalWrite(fanpin_off,LOW);
-    //Serial.println("Heater Off");
+    digitalWrite(heatpin_on,LOW);
+    digitalWrite(heatpin_off,LOW);
+    Serial.println("Heater Off from and Fan ON Values");
     heat_status = 0;
     fan_status = 1;
   }
 
-  else if (tempF > floatVariablesArray[1] && tempF < floatVariablesArray[0] && (heat_bool == 1 || heat_bool == 0 || fan_bool == 1 || fan_bool == 0)){
+  else if (tempF > floatVariablesArray[0] && tempF < floatVariablesArray[1] && (heat_bool == 1 || heat_bool == 0 || fan_bool == 1 || fan_bool == 0)){
     digitalWrite(heatpin_on,LOW);
     digitalWrite(heatpin_off,LOW);
     digitalWrite(fanpin_on,LOW);
@@ -170,39 +171,35 @@ void heatloop(){ //Whether to turn on heater or fan
     heat_status = 0;
     fan_status = 0;
   }
-
-
 }
 
 
 void moistureloop(){//Whether to turn on pump or not
   int totalmoisture = (moist1 + moist2+ moist3 + moist4)/4;
+  Serial.println("Total Moisture");
+  Serial.println(totalmoisture);
   //Serial.println(totalmoisture);
 
-  if (totalmoisture <= floatVariablesArray[5] && (pump_bool == 1 || pump_bool == 0)){
+  if (totalmoisture <= floatVariablesArray[4] && (pump_bool == 1 || pump_bool == 0)){
     digitalWrite(pump_on,HIGH);
     digitalWrite(pump_off,LOW);
-    //Serial.println("PUMP ON");
+    Serial.println("PUMP ON from Values");
     pump_status = 1;
   }
 
-
-  if (totalmoisture > floatVariablesArray[5] && totalmoisture < floatVariablesArray[4] && (pump_bool == 1 || pump_bool == 0) ){
+  if (totalmoisture > floatVariablesArray[4] && totalmoisture < floatVariablesArray[5] && (pump_bool == 1 || pump_bool == 0) ){
     digitalWrite(pump_on,HIGH);
     digitalWrite(pump_off,LOW);
-    //Serial.println("Pump working");
+    Serial.println("Pump Filling working from Values");
     pump_status = 0;
-
   }
 
-    if (totalmoisture >= floatVariablesArray[4] && (pump_bool == 1 || pump_bool == 0)){
+    if (totalmoisture >= floatVariablesArray[5] && (pump_bool == 1 || pump_bool == 0)){
     digitalWrite(pump_on,LOW);
     digitalWrite(pump_off,LOW);
-    //Serial.println("PUMP Off");
+    Serial.println("PUMP Off from Values");
     pump_status = 0;
   }
-
-
 }
 
 int countLines(String payload) { //String to Integer
@@ -214,6 +211,7 @@ int countLines(String payload) { //String to Integer
   }
   return lines;
 }
+
 
 void parseCSV(String payload) { //Parsing of data from CSV File
   int lineIndex = 0;

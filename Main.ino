@@ -65,23 +65,15 @@ void callback(char* topic, byte* message, unsigned int length) {
   String messageTemp;
   
   for (int i = 0; i < length; i++) {
-    Serial.print((char)message[i]);
     messageTemp += (char)message[i];
   }
-  Serial.println();
-
-
-    // If a message is received on the topic esp32/output, check if the message is either "on" or "off". 
-  if (String(topic) == "homeassist/Output1") {
-    Serial.print("Changing output to ");
-    if(messageTemp == "True"){
-      Serial.println("on");
-  
-    }
-  else if(messageTemp == "False"){
-      Serial.println("off");
-      
-    }
+  Serial.println(messageTemp);
+    if (topic == "homeassist/heater" && and messageTemp == "ON")
+  {
+    heat_bool = true; 
+  }
+  else if (topic == "homeassist/heater" && and messageTemp == "OFF") {
+    heat_bool = false;
   }
 }
 
@@ -128,7 +120,11 @@ void setup() {
   //Connect to MQTT 
   client.setServer(mqttServer, mqttPort);
   client.connect("core-mosquitto", "mqtt-user", "1234");
+  client.subscribe("homeassist/Output1");
+  client.subscribe("homeassist/Output2");
+  client.subscribe("homeassist/Output3");
   client.setCallback(callback);
+
 
   // Configure and connect to BME280 Sensor via I2C - blocking
   Serial.println("Checking BME280");
@@ -189,34 +185,5 @@ void loop() {
 runthings();
 
 }
-
-
-void reconnect() {
-  // Loop until we're reconnected
-  while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    // Attempt to connect
-    if (client.connect("ESP32Client")) {
-      Serial.println("connected");
-      // Subscribe
-      
-  //subscribe to topics from home assistant
-  client.subscribe("homeassist/Output1");
-  client.subscribe("homeassist/Output2");
-  client.subscribe("homeassist/Output3");
-  
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
-      delay(5000);
-    }
-  }
-}
-
-
-
-
 
 

@@ -1,14 +1,5 @@
 void runthings(){
 
-  if (!client.connected()) {
-    reconnect();
-  }
-  else  {
-    Serial.println("Topic Subscribed");
-  }
-
-  client.loop();
-
   unsigned long currentTime = millis();
   unsigned long elapsedTime = currentTime - lastToggleTime;
   
@@ -150,7 +141,7 @@ void runthings(){
   client.loop();
   Serial.println("-------------");
   // Wait for 5 seconds before repeating the loop
-  delay(10000);
+  delay(1000);
 }
 
 

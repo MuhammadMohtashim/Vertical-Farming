@@ -1,9 +1,36 @@
 void runthings(){
-String postData;
 
-  // This is the recommended minimum amount of time to wait before
-  // reading the sensor
+  if (!client.connected()) {
+    reconnect();
+  }
+  else  {
+    Serial.println("Topic Subscribed");
+  }
+
+  client.loop();
+
+  unsigned long currentTime = millis();
+  unsigned long elapsedTime = currentTime - lastToggleTime;
+  
+  if (bulbState && elapsedTime >= 28800000) { // 8 hours in milliseconds
+    digitalWrite(lightpin, LOW);
+    bulbState = false;
+    lastToggleTime = currentTime;
+    Serial.println("Bulb is OFF");
+  } 
+  else if (!bulbState && elapsedTime >= 57600000) { // 16 hours in milliseconds
+    digitalWrite(lightpin, HIGH);
+    bulbState = true;
+    lastToggleTime = currentTime;
+    Serial.println("Bulb is ON");
+  }
+
+  String postData;
+
+  // This is the recommended minimum amount of time to wait before reading sensor
   delay(1000);
+
+
 
   // Read the sensor, convert readings and set variables
   tempF = bme.readTemperature();
@@ -34,56 +61,54 @@ String postData;
           moistpercent1 = moistpercent1;
           }
 
-    if(moistpercent2 >= 100)
+  if(moistpercent2 >= 100)
           {
           moistpercent2 = 100;
           }
-      else if(moistpercent2 <=0)
+    else if(moistpercent2 <=0)
           {
           moistpercent2 = 0;
           }
-      else if(moistpercent2 >0 && moistpercent2 < 100)
+    else if(moistpercent2 >0 && moistpercent2 < 100)
           {
           moistpercent2 = moistpercent2;
           }
 
-    if(moistpercent3 >= 100)
+  if(moistpercent3 >= 100)
           {
           moistpercent3 = 100;
           }
-      else if(moistpercent3 <=0)
+    else if(moistpercent3 <=0)
           {
           moistpercent3 = 0;
           }
-      else if(moistpercent3 >0 && moistpercent3 < 100)
+    else if(moistpercent3 >0 && moistpercent3 < 100)
           {
           moistpercent3 = moistpercent3;
           }
 
-    if(moistpercent4 >= 100)
+  if(moistpercent4 >= 100)
           {
           moistpercent4 = 100;
           }
-      else if(moistpercent4 <=0)
+    else if(moistpercent4 <=0)
           {
           moistpercent4 = 0;
           }
-      else if(moistpercent4 >0 && moistpercent4 < 100)
+    else if(moistpercent4 >0 && moistpercent4 < 100)
           {
           moistpercent4 = moistpercent4;
           }
 
+  moist1 = moistpercent1;
+  moist2 = moistpercent2;
+  moist3 = moistpercent3;
+  moist4 = moistpercent4;
 
-    moist1 = moistpercent1;
-    moist2 = moistpercent2;
-    moist3 = moistpercent3;
-    moist4 = moistpercent4;
+  heatloop();
+  moistureloop();
 
-    heatloop();
-    moistureloop();
-
-  //Following code creates the serialized JSON string to send to JEDI One
-  //using ArduinoJson library v6.x
+  //Creates serialized JSON string to send to Home Assistant
   const int capacity = JSON_OBJECT_SIZE(10);
   StaticJsonDocument<capacity> doc;
 
@@ -101,10 +126,10 @@ String postData;
   char buffer[256];
   size_t n = serializeJson(doc, buffer);
 
-  //If MQTT client not connected, attempt connection - blocking
+  //If MQTT client not connected, attempt connection
   while (!client.connected()) {
     Serial.print("Attempting MQTT connection...");
-    if (client.connect("core-mosquitto", mqttUser, mqttPassword )) {
+     if (client.connect("core-mosquitto", mqttUser, mqttPassword )) {
       Serial.println("connected");
     } else {
       Serial.print("failed with state ");
@@ -114,10 +139,10 @@ String postData;
   }
   Serial.println("\r\n-------------");
   //publish MQTT message with BME280 payload
-  if (client.publish("datacache/test", buffer, n) == true) {
+  if (client.publish("esp32/output", buffer, n) == true) {
     Serial.print("Success sending message: ");
     Serial.println(buffer);
-    Serial.print("To topic: datacache/");
+    Serial.print("To topic: esp32/");
     //Serial.println(jediID);
   } else {
     Serial.println("Error publishing message");
@@ -129,8 +154,8 @@ String postData;
 }
 
 
-void heatloop(){
-  if (tempF <= 35){
+void heatloop(){ //Whether to turn on heater or fan
+  if (tempF <= floatVariablesArray[0]){
     digitalWrite(heatpin,HIGH);
     digitalWrite(coldpin,LOW);
     //Serial.println("Heater ON");
@@ -139,7 +164,7 @@ void heatloop(){
 
   }
 
-  else if (tempF >= 45){
+  else if (tempF >= floatVariablesArray[1]){
     digitalWrite(heatpin,LOW);
     digitalWrite(coldpin,HIGH);
     //Serial.println("Heater Off");
@@ -147,7 +172,7 @@ void heatloop(){
     fan_status = 1;
   }
 
-  else if (tempF <= 30 && tempF >= 40){
+  else if (tempF <= floatVariablesArray[0] && tempF >= floatVariablesArray[1]){
     digitalWrite(heatpin,LOW);
     digitalWrite(coldpin,LOW);
     heat_status = 0;
@@ -156,9 +181,9 @@ void heatloop(){
 }
 
 
-void moistureloop(){
+void moistureloop(){//Whether to turn on pump or not
   int totalmoisture = (moist1 + moist2+ moist3 + moist4)/4;
-  Serial.println(totalmoisture);
+  //Serial.println(totalmoisture);
   if (totalmoisture <= 60){
     digitalWrite(pump_on,HIGH);
     digitalWrite(pump_off,LOW);
@@ -184,7 +209,7 @@ void moistureloop(){
    
 }
 
-int countLines(String payload) {
+int countLines(String payload) { //String to Integer
   int lines = 0;
   for (int i = 0; i < payload.length(); i++) {
     if (payload[i] == '\n') {
@@ -194,7 +219,7 @@ int countLines(String payload) {
   return lines;
 }
 
-void parseCSV(String payload) {
+void parseCSV(String payload) { //Parsing of data from CSV File
   int lineIndex = 0;
   int dataIndex = 0;
   String variable = "";

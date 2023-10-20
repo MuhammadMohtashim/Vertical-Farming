@@ -1,9 +1,141 @@
+void runthings(){
+String postData;
+
+  // This is the recommended minimum amount of time to wait before
+  // reading the sensor
+  delay(1000);
+
+  // Read the sensor, convert readings and set variables
+  tempF = bme.readTemperature();
+  humi = bme.readHumidity();
+  pressure = bme.readPressure() / 100.0F;
+  MoistVal1 = analogRead(moist_pin1);  //put Sensor insert into soil
+  MoistVal2 = analogRead(moist_pin2);  //put Sensor insert into soil
+  MoistVal3 = analogRead(moist_pin3);  //put Sensor insert into soil
+  MoistVal4 = analogRead(moist_pin4);  //put Sensor insert into soil
+
+  int moistpercent1, moistpercent2, moistpercent3, moistpercent4;
+
+  moistpercent1 = map(MoistVal1, dry, wet, 0, 100);
+  moistpercent2 = map(MoistVal2, dry, wet, 0, 100);
+  moistpercent3 = map(MoistVal3, dry, wet, 0, 100);
+  moistpercent4 = map(MoistVal4, dry, wet, 0, 100);
+
+  if(moistpercent1 >= 100)
+          {
+          moistpercent1 = 100;
+          }
+    else if(moistpercent1 <=0)
+          {
+          moistpercent1 = 0;
+          }
+    else if(moistpercent1 >0 && moistpercent1 < 100)
+          {
+          moistpercent1 = moistpercent1;
+          }
+
+    if(moistpercent2 >= 100)
+          {
+          moistpercent2 = 100;
+          }
+      else if(moistpercent2 <=0)
+          {
+          moistpercent2 = 0;
+          }
+      else if(moistpercent2 >0 && moistpercent2 < 100)
+          {
+          moistpercent2 = moistpercent2;
+          }
+
+    if(moistpercent3 >= 100)
+          {
+          moistpercent3 = 100;
+          }
+      else if(moistpercent3 <=0)
+          {
+          moistpercent3 = 0;
+          }
+      else if(moistpercent3 >0 && moistpercent3 < 100)
+          {
+          moistpercent3 = moistpercent3;
+          }
+
+    if(moistpercent4 >= 100)
+          {
+          moistpercent4 = 100;
+          }
+      else if(moistpercent4 <=0)
+          {
+          moistpercent4 = 0;
+          }
+      else if(moistpercent4 >0 && moistpercent4 < 100)
+          {
+          moistpercent4 = moistpercent4;
+          }
+
+
+    moist1 = moistpercent1;
+    moist2 = moistpercent2;
+    moist3 = moistpercent3;
+    moist4 = moistpercent4;
+
+    heatloop();
+    moistureloop();
+
+  //Following code creates the serialized JSON string to send to JEDI One
+  //using ArduinoJson library v6.x
+  const int capacity = JSON_OBJECT_SIZE(10);
+  StaticJsonDocument<capacity> doc;
+
+  doc["tempF"] = tempF;
+  doc["humi"] = humi;
+  doc["pressure"] = pressure;
+  doc["moist1"] = moist1;
+  doc["moist2"] = moist2; 
+  doc["moist3"] = moist3;
+  doc["moist4"] = moist4;
+  doc["PumpStat"] = pump_status;
+  doc["HeatStat"] = heat_status;
+  doc["FanStat"] = fan_status;
+
+  char buffer[256];
+  size_t n = serializeJson(doc, buffer);
+
+  //If MQTT client not connected, attempt connection - blocking
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    if (client.connect("core-mosquitto", mqttUser, mqttPassword )) {
+      Serial.println("connected");
+    } else {
+      Serial.print("failed with state ");
+      Serial.println(client.state());
+      delay(5000);
+    }
+  }
+  Serial.println("\r\n-------------");
+  //publish MQTT message with BME280 payload
+  if (client.publish("datacache/test", buffer, n) == true) {
+    Serial.print("Success sending message: ");
+    Serial.println(buffer);
+    Serial.print("To topic: datacache/");
+    //Serial.println(jediID);
+  } else {
+    Serial.println("Error publishing message");
+  }
+  client.loop();
+  Serial.println("-------------");
+  // Wait for 5 seconds before repeating the loop
+  delay(10000);
+}
+
+
 void heatloop(){
-  if (tempF <= 20){
+  if (tempF <= 35){
     digitalWrite(heatpin,HIGH);
     digitalWrite(coldpin,LOW);
     //Serial.println("Heater ON");
     heat_status = 1;
+    fan_status = 0;
 
   }
 
@@ -12,11 +144,14 @@ void heatloop(){
     digitalWrite(coldpin,HIGH);
     //Serial.println("Heater Off");
     heat_status = 0;
+    fan_status = 1;
   }
 
   else if (tempF <= 30 && tempF >= 40){
     digitalWrite(heatpin,LOW);
     digitalWrite(coldpin,LOW);
+    heat_status = 0;
+    fan_status = 0;
   }
 }
 
@@ -47,4 +182,42 @@ void moistureloop(){
     pump_status = 0;
   }
    
+}
+
+int countLines(String payload) {
+  int lines = 0;
+  for (int i = 0; i < payload.length(); i++) {
+    if (payload[i] == '\n') {
+      lines++;
+    }
+  }
+  return lines;
+}
+
+void parseCSV(String payload) {
+  int lineIndex = 0;
+  int dataIndex = 0;
+  String variable = "";
+  for (int i = 0; i < payload.length(); i++) {
+    char c = payload[i];
+    if (c == '\n') {
+      if (variable != "") {
+        variablesArray[lineIndex] = variable;
+        Serial.print("Global Variable at line ");
+        Serial.print(lineIndex);
+        Serial.print(": ");
+        Serial.println(variable);
+      }
+      lineIndex++;
+      dataIndex = 0;
+      variable = "";
+    } else if (c == ',') {
+      dataIndex++;
+      if (dataIndex == 1) {
+        variable = "";
+      }
+    } else if (dataIndex == 1) {
+      variable += c;
+    }
+  }
 }

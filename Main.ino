@@ -23,10 +23,14 @@ Adafruit_BME280 bme;
 const int dry = 2600;   //you need to replace this value with Value_1
 const int wet = 600;  //you need to replace this value with Value_2
 
-int pump_status, heat_status;
+int pump_status, heat_status, fan_status;
 float moist1, moist2, moist3, moist4;
 float tempF, humi, pressure, MoistVal1, MoistVal2, MoistVal3, MoistVal4;
 
+
+String* variablesArray = nullptr;
+float* floatVariablesArray = nullptr;  // Global float array
+int variablesCount = 0;
 
 
 //*** UPDATE THESE SETTINGS
@@ -89,135 +93,48 @@ void setup() {
   } else {
     Serial.println("BME280 Detected");
   }
+
+
+    HTTPClient http;
+  http.begin("https://raw.githubusercontent.com/MuhammadMohtashim/Vertical-Farming/main/data.csv");
+  int httpCode = http.GET();
+  if (httpCode > 0) {
+    String payload = http.getString();
+    int rows = 0;
+    for (int i = 0; i < payload.length(); i++) {
+      if (payload[i] == '\n') {
+        rows++;
+      }
+    }
+    variablesArray = new String[rows];
+    variablesCount = rows;
+    int stringStart = 0;
+    int stringEnd = 0;
+    for (int r = 0; r < rows; r++) {
+      stringEnd = payload.indexOf('\n', stringStart);
+      String row = payload.substring(stringStart, stringEnd);
+      int colIndex = row.indexOf(',');
+      variablesArray[r] = row.substring(colIndex + 1);
+      stringStart = stringEnd + 1;
+    }
+  }
+  else {
+    Serial.println("Error on HTTP request");
+  }
+  http.end();
+  floatVariablesArray = new float[variablesCount];  // Initialize float array
+  for (int i = 0; i < variablesCount; i++) {
+    floatVariablesArray[i] = variablesArray[i].toFloat();  // Convert String to float
+  }
+
 }
 
 // This is the main section and will loop continuously
 void loop() {
-
-  String postData;
-
-  // This is the recommended minimum amount of time to wait before
-  // reading the sensor
-  delay(1000);
-
-  // Read the sensor, convert readings and set variables
-  tempF = bme.readTemperature();
-  humi = bme.readHumidity();
-  pressure = bme.readPressure() / 100.0F;
-  MoistVal1 = analogRead(moist_pin1);  //put Sensor insert into soil
-  MoistVal2 = analogRead(moist_pin2);  //put Sensor insert into soil
-  MoistVal3 = analogRead(moist_pin3);  //put Sensor insert into soil
-  MoistVal4 = analogRead(moist_pin4);  //put Sensor insert into soil
-
-  int moistpercent1, moistpercent2, moistpercent3, moistpercent4;
-
-  moistpercent1 = map(MoistVal1, dry, wet, 0, 100);
-  moistpercent2 = map(MoistVal2, dry, wet, 0, 100);
-  moistpercent3 = map(MoistVal3, dry, wet, 0, 100);
-  moistpercent4 = map(MoistVal4, dry, wet, 0, 100);
-
-  if(moistpercent1 >= 100)
-          {
-          moistpercent1 = 100;
-          }
-    else if(moistpercent1 <=0)
-          {
-          moistpercent1 = 0;
-          }
-    else if(moistpercent1 >0 && moistpercent1 < 100)
-          {
-          moistpercent1 = moistpercent1;
-          }
-
-    if(moistpercent2 >= 100)
-          {
-          moistpercent2 = 100;
-          }
-      else if(moistpercent2 <=0)
-          {
-          moistpercent2 = 0;
-          }
-      else if(moistpercent2 >0 && moistpercent2 < 100)
-          {
-          moistpercent2 = moistpercent2;
-          }
-
-    if(moistpercent3 >= 100)
-          {
-          moistpercent3 = 100;
-          }
-      else if(moistpercent3 <=0)
-          {
-          moistpercent3 = 0;
-          }
-      else if(moistpercent3 >0 && moistpercent3 < 100)
-          {
-          moistpercent3 = moistpercent3;
-          }
-
-    if(moistpercent4 >= 100)
-          {
-          moistpercent4 = 100;
-          }
-      else if(moistpercent4 <=0)
-          {
-          moistpercent4 = 0;
-          }
-      else if(moistpercent4 >0 && moistpercent4 < 100)
-          {
-          moistpercent4 = moistpercent4;
-          }
-
-
-    moist1 = moistpercent1;
-    moist2 = moistpercent2;
-    moist3 = moistpercent3;
-    moist4 = moistpercent4;
-
-    heatloop();
-    moistureloop();
-
-  //Following code creates the serialized JSON string to send to JEDI One
-  //using ArduinoJson library v6.x
-  const int capacity = JSON_OBJECT_SIZE(9);
-  StaticJsonDocument<capacity> doc;
-
-  doc["tempF"] = tempF;
-  doc["humi"] = humi;
-  doc["pressure"] = pressure;
-  doc["moist1"] = moist1;
-  doc["moist2"] = moist2; 
-  doc["moist3"] = moist3;
-  doc["moist4"] = moist4;
-  doc["PumpStat"] = pump_status;
-  doc["HeatStat"] = heat_status;
-
-  char buffer[256];
-  size_t n = serializeJson(doc, buffer);
-
-  //If MQTT client not connected, attempt connection - blocking
-  while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    if (client.connect("core-mosquitto", mqttUser, mqttPassword )) {
-      Serial.println("connected");
-    } else {
-      Serial.print("failed with state ");
-      Serial.println(client.state());
-      delay(5000);
-    }
-  }
-  Serial.println("\r\n-------------");
-  //publish MQTT message with BME280 payload
-  if (client.publish("datacache/test", buffer, n) == true) {
-    Serial.print("Success sending message: ");
-    Serial.println(buffer);
-    Serial.print("To topic: datacache/");
-    //Serial.println(jediID);
-  } else {
-    Serial.println("Error publishing message");
-  }
-  client.loop();
-  Serial.println("-------------");
-  // Wait for 5 seconds before repeating the loop
-  delay(10000);
+runthings();
 }
+
+
+
+
+

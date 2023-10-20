@@ -39,68 +39,60 @@ void runthings(){
   moistpercent3 = map(MoistVal3, dry, wet, 0, 100);
   moistpercent4 = map(MoistVal4, dry, wet, 0, 100);
 
-  if(moistpercent1 >= 100)
-          {
-          moistpercent1 = 100;
-          }
-    else if(moistpercent1 <=0)
-          {
-          moistpercent1 = 0;
-          }
-    else if(moistpercent1 >0 && moistpercent1 < 100)
-          {
-          moistpercent1 = moistpercent1;
-          }
+  moist1 = constrain(moistpercent1, 0, 100);
+  moist2 = constrain(moistpercent2, 0, 100);
+  moist3 = constrain(moistpercent3, 0, 100);
+  moist4 = constrain(moistpercent4, 0, 100);
 
-  if(moistpercent2 >= 100)
-          {
-          moistpercent2 = 100;
-          }
-    else if(moistpercent2 <=0)
-          {
-          moistpercent2 = 0;
-          }
-    else if(moistpercent2 >0 && moistpercent2 < 100)
-          {
-          moistpercent2 = moistpercent2;
-          }
+  if (manual_bool == 1){
+    manual_status = 1;
+    //Serial.println("Manual switch activated");
+    if (heat_bool == 1)
+    {
+      digitalWrite(heatpin_on,LOW);
+      digitalWrite(heatpin_off,HIGH);
+      heat_status = 1;
+    }
+    else if (heat_bool == 0){
+      digitalWrite(heatpin_on,LOW);
+      digitalWrite(heatpin_off,LOW);
+      heat_status = 0;
+    }
 
-  if(moistpercent3 >= 100)
-          {
-          moistpercent3 = 100;
-          }
-    else if(moistpercent3 <=0)
-          {
-          moistpercent3 = 0;
-          }
-    else if(moistpercent3 >0 && moistpercent3 < 100)
-          {
-          moistpercent3 = moistpercent3;
-          }
+    if (pump_bool == 1){
+      digitalWrite(pump_on,HIGH);
+      digitalWrite(pump_off,LOW);
+      pump_status = 1;
+    }
+    else if (pump_bool == 0){
+      digitalWrite(pump_on,LOW);
+      digitalWrite(pump_off,LOW);
+      pump_status = 0;
+    }
 
-  if(moistpercent4 >= 100)
-          {
-          moistpercent4 = 100;
-          }
-    else if(moistpercent4 <=0)
-          {
-          moistpercent4 = 0;
-          }
-    else if(moistpercent4 >0 && moistpercent4 < 100)
-          {
-          moistpercent4 = moistpercent4;
-          }
+    if (fan_bool == 1){
+      digitalWrite(fanpin_on,HIGH);
+      digitalWrite(fanpin_off,LOW);
+      fan_status = 1;
+    }
 
-  moist1 = moistpercent1;
-  moist2 = moistpercent2;
-  moist3 = moistpercent3;
-  moist4 = moistpercent4;
+    else if(fan_bool == 0){
+      digitalWrite(fanpin_on,LOW);
+      digitalWrite(fanpin_off,LOW);
+      fan_bool = 0;
+    }
+  }
 
-  heatloop();
-  moistureloop();
+  if (manual_bool == 0) {
+    //Serial.println("Manual switch de-activated");
+    heatloop();
+    moistureloop();
+    manual_status = 0;
+  }
+
 
   //Creates serialized JSON string to send to Home Assistant
-  const int capacity = JSON_OBJECT_SIZE(10);
+  const int capacity = JSON_OBJECT_SIZE(11);
   StaticJsonDocument<capacity> doc;
 
   doc["tempF"] = tempF;
@@ -113,6 +105,7 @@ void runthings(){
   doc["PumpStat"] = pump_status;
   doc["HeatStat"] = heat_status;
   doc["FanStat"] = fan_status;
+  doc["ManualStat"] = manual_status;
 
   char buffer[256];
   size_t n = serializeJson(doc, buffer);
@@ -122,60 +115,71 @@ void runthings(){
     Serial.print("Attempting MQTT connection...");
      if (client.connect("core-mosquitto", mqttUser, mqttPassword )) {
       Serial.println("connected");
-    } else {
+    } 
+     else {
       Serial.print("failed with state ");
       Serial.println(client.state());
       delay(5000);
     }
   }
+
   Serial.println("\r\n-------------");
   //publish MQTT message with BME280 payload
   if (client.publish("esp32/output", buffer, n) == true) {
-    Serial.print("Success sending message: ");
+   // Serial.print("Success sending message: ");
     Serial.println(buffer);
-    Serial.print("To topic: esp32/");
-    //Serial.println(jediID);
+   // Serial.print("To topic: esp32/");
   } else {
     Serial.println("Error publishing message");
   }
   client.loop();
-  Serial.println("-------------");
+  //Serial.println("-------------");
   // Wait for 5 seconds before repeating the loop
   delay(1000);
+
 }
 
 
+
 void heatloop(){ //Whether to turn on heater or fan
-  if (tempF <= floatVariablesArray[0]){
-    digitalWrite(heatpin,HIGH);
-    digitalWrite(coldpin,LOW);
+
+  if (tempF <= floatVariablesArray[1] && (heat_bool == 1 || heat_bool == 0)){
+    //Serial.println(floatVariablesArray[1]);
+    digitalWrite(heatpin_on,HIGH);
+    digitalWrite(heatpin_off,LOW);
     //Serial.println("Heater ON");
     heat_status = 1;
     fan_status = 0;
 
   }
 
-  else if (tempF >= floatVariablesArray[1]){
-    digitalWrite(heatpin,LOW);
-    digitalWrite(coldpin,HIGH);
+  else if (tempF >= floatVariablesArray[0] && (fan_bool == 1 || fan_bool == 0)){
+    //Serial.println(floatVariablesArray[0]);
+    digitalWrite(fanpin_on,HIGH);
+    digitalWrite(fanpin_off,LOW);
     //Serial.println("Heater Off");
     heat_status = 0;
     fan_status = 1;
   }
 
-  else if (tempF <= floatVariablesArray[0] && tempF >= floatVariablesArray[1]){
-    digitalWrite(heatpin,LOW);
-    digitalWrite(coldpin,LOW);
+  else if (tempF > floatVariablesArray[1] && tempF < floatVariablesArray[0] && (heat_bool == 1 || heat_bool == 0 || fan_bool == 1 || fan_bool == 0)){
+    digitalWrite(heatpin_on,LOW);
+    digitalWrite(heatpin_off,LOW);
+    digitalWrite(fanpin_on,LOW);
+    digitalWrite(fanpin_off,LOW);
     heat_status = 0;
     fan_status = 0;
   }
+
+
 }
 
 
 void moistureloop(){//Whether to turn on pump or not
   int totalmoisture = (moist1 + moist2+ moist3 + moist4)/4;
   //Serial.println(totalmoisture);
-  if (totalmoisture <= 60){
+
+  if (totalmoisture <= floatVariablesArray[5] && (pump_bool == 1 || pump_bool == 0)){
     digitalWrite(pump_on,HIGH);
     digitalWrite(pump_off,LOW);
     //Serial.println("PUMP ON");
@@ -183,7 +187,7 @@ void moistureloop(){//Whether to turn on pump or not
   }
 
 
-  if (totalmoisture >= 65 && totalmoisture <=75 ){
+  if (totalmoisture > floatVariablesArray[5] && totalmoisture < floatVariablesArray[4] && (pump_bool == 1 || pump_bool == 0) ){
     digitalWrite(pump_on,HIGH);
     digitalWrite(pump_off,LOW);
     //Serial.println("Pump working");
@@ -191,13 +195,14 @@ void moistureloop(){//Whether to turn on pump or not
 
   }
 
-    if (totalmoisture >= 80){
+    if (totalmoisture >= floatVariablesArray[4] && (pump_bool == 1 || pump_bool == 0)){
     digitalWrite(pump_on,LOW);
     digitalWrite(pump_off,LOW);
     //Serial.println("PUMP Off");
     pump_status = 0;
   }
-   
+
+
 }
 
 int countLines(String payload) { //String to Integer

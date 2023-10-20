@@ -1,4 +1,4 @@
-//Include Libraries.
+ //Include Libraries.
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <Adafruit_Sensor.h>
@@ -12,27 +12,31 @@
 #define moist_pin2 34
 #define moist_pin3 39
 #define moist_pin4 36
-#define fan_pin_on 16
-#define fan_pin_off 17
+#define fanpin_on 16
+#define fanpin_off 17
 #define pump_on 18
 #define pump_off 19
-#define heatpin 32
-#define coldpin 33
+#define heatpin_on 32
+#define heatpin_off 33
 #define lightpin 23
+
 
 //Define Floats and Integers 
 Adafruit_BME280 bme;
 const int dry = 2600;   //you need to replace this value with Value_1
 const int wet = 600;  //you need to replace this value with Value_2
 
+int pump_bool, heat_bool, fan_bool, manual_bool, select_bool, temp_bool;
+
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 0;
 const int   daylightOffset_sec = 3600;
 
+
 unsigned long lastToggleTime = 0;
 bool bulbState = false;
 
-int pump_status, heat_status, fan_status;
+int pump_status, heat_status, fan_status,manual_status;
 float moist1, moist2, moist3, moist4;
 float tempF, humi, pressure, MoistVal1, MoistVal2, MoistVal3, MoistVal4;
 
@@ -59,22 +63,60 @@ int value = 0;
 
 //ESP32 Output Message Creation
 void callback(char* topic, byte* message, unsigned int length) {
-  Serial.print("Message arrived on topic: ");
-  Serial.print(topic);
-  Serial.print(". Message: ");
+  //Serial.print("Message arrived on topic: ");
+  //Serial.print(topic);
+  //Serial.print(". Message: ");
   String messageTemp;
+  
   
   for (int i = 0; i < length; i++) {
     messageTemp += (char)message[i];
   }
   Serial.println(messageTemp);
-    if (topic == "homeassist/heater" && and messageTemp == "ON")
+  int Temp = messageTemp.toInt();
+  Serial.println(Temp);
+
+  String temptopic(topic);
+  Serial.println(temptopic); 
+
+  if (temptopic == "homeassist/manual" &&  Temp == 1)
   {
-    heat_bool = true; 
+    manual_bool = 1;
+    select_bool = 1; 
+    Serial.println("Manual bool turned on");
   }
-  else if (topic == "homeassist/heater" && and messageTemp == "OFF") {
-    heat_bool = false;
+  
+  else if (temptopic == "homeassist/manual" &&  Temp == 0) 
+  {
+    manual_bool = 0;
+    select_bool = 0;
+    Serial.println("manual bool turned off");
   }
+  
+  if ((topic == "homeassist/heater") && (messageTemp == "1"))
+  {
+    heat_bool = 1; 
+  }
+  else if (topic == "homeassist/heater" && messageTemp == "0") {
+    heat_bool = 0;
+  }
+
+  if (topic == "homeassist/pump" &&  messageTemp == "1")
+  {
+    pump_bool = 1; 
+  }
+  else if (topic == "homeassist/pump" &&  messageTemp == "0") {
+    heat_bool = 0;
+  }
+
+    if (topic == "homeassist/fan" &&  messageTemp == "1")
+  {
+    fan_bool = 1; 
+  }
+  else if (topic == "homeassist/fan" &&  messageTemp == "0"){
+    fan_bool = 0;
+  }
+
 }
 
 
@@ -95,12 +137,12 @@ void setup() {
   pinMode(moist_pin2,INPUT);
   pinMode(moist_pin3,INPUT);
   pinMode(moist_pin4,INPUT);
-  pinMode(fan_pin_on,OUTPUT);
-  pinMode(fan_pin_off,OUTPUT);
+  pinMode(fanpin_on,OUTPUT);
+  pinMode(fanpin_off,OUTPUT);
   pinMode(pump_on,OUTPUT);
   pinMode(pump_off,OUTPUT);
-  pinMode(heatpin,OUTPUT);
-  pinMode(coldpin,OUTPUT);
+  pinMode(heatpin_on,OUTPUT);
+  pinMode(heatpin_off,OUTPUT);
   pinMode(lightpin,OUTPUT);
 
   // Initiate Wi-Fi connection setup
@@ -120,10 +162,12 @@ void setup() {
   //Connect to MQTT 
   client.setServer(mqttServer, mqttPort);
   client.connect("core-mosquitto", "mqtt-user", "1234");
-  client.subscribe("homeassist/Output1");
-  client.subscribe("homeassist/Output2");
-  client.subscribe("homeassist/Output3");
+  client.subscribe("homeassist/heater");
+  client.subscribe("homeassist/pump");
+  client.subscribe("homeassist/fan");
+  client.subscribe("homeassist/manual");
   client.setCallback(callback);
+  
 
 
   // Configure and connect to BME280 Sensor via I2C - blocking
